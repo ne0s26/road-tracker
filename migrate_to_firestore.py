@@ -68,11 +68,21 @@ def main():
     print("✔ progress ו-trip_segments הועלו.")
 
     # כל מסלול הופך למסמך נפרד תחת users/{email}/routes/{route_id}
+    #
+    # הערה חשובה: Firestore אוסר על "מערך בתוך מערך" (nested array) כערך
+    # שדה ישיר - ו-coordinates הוא בדיוק רשימת נקודות [lng, lat], כלומר
+    # רשימה של רשימות. לכן ממירים כל נקודה למילון {"lng":.., "lat":..}
+    # לפני השמירה (בדיוק כמו ב-app.py, ב-_coords_to_firestore) - אחרת
+    # ה-migration נכשל עם "400 Nested arrays are not allowed".
     routes_col = user_ref.collection("routes")
     for i, route in enumerate(routes):
         route_id = route.get("id") or f"migrated-{i}"
         route_data = dict(route)
         route_data.pop("id", None)  # ה-id הוא כבר שם המסמך, לא צריך גם כשדה בתוכו
+        if route_data.get("coordinates"):
+            route_data["coordinates"] = [
+                {"lng": c[0], "lat": c[1]} for c in route_data["coordinates"]
+            ]
         routes_col.document(route_id).set(route_data, merge=True)
 
     print(f"✔ {len(routes)} מסלולים הועלו.")

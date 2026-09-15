@@ -110,11 +110,27 @@ def save_trip_segments(trip_segments):
     user_doc_ref().set({"trip_segments": trip_segments}, merge=True)
 
 
+def _coords_to_firestore(coordinates):
+    """Firestore אוסר על 'מערך בתוך מערך' (nested array) כערך שדה ישיר -
+    ולכן אי אפשר לשמור רשימת נקודות [lng, lat] כמו שהיא (זו בדיוק רשימה
+    של רשימות). ממירים כל נקודה למילון {"lng":.., "lat":..} לפני השמירה -
+    זה כן מותר (מערך של מילונים)."""
+    return [{"lng": c[0], "lat": c[1]} for c in coordinates]
+
+
+def _coords_from_firestore(coordinates):
+    """הפיכת הנקודות בחזרה לרשימת [lng, lat] - הפורמט שה-JavaScript בדפדפן
+    מצפה לו (GeoJSON LineString)."""
+    return [[c["lng"], c["lat"]] for c in coordinates]
+
+
 def load_routes():
     routes = []
     for snap in routes_collection().stream():
         route = snap.to_dict()
         route["id"] = snap.id
+        if route.get("coordinates"):
+            route["coordinates"] = _coords_from_firestore(route["coordinates"])
         routes.append(route)
     return routes
 
@@ -165,7 +181,12 @@ def save_route():
         "breakdown": breakdown,
         "auto_synced": False,
     }
-    routes_collection().document(new_route["id"]).set(new_route)
+    # לשרת/ל-Firestore שולחים גרסה עם קואורדינטות "ארוזות" כמילונים (ראו
+    # _coords_to_firestore) - אבל ללקוח מחזירים את new_route המקורי, עם
+    # הקואורדינטות בפורמט הרגיל [lng, lat] שהוא כבר מצפה לו מיד לציור
+    firestore_doc = dict(new_route)
+    firestore_doc["coordinates"] = _coords_to_firestore(coordinates)
+    routes_collection().document(new_route["id"]).set(firestore_doc)
     return jsonify({"status": "ok", "route": new_route})
 
 
@@ -189,7 +210,12 @@ def update_route(route_id):
     route["breakdown"] = breakdown
     route["name"] = name_from_breakdown(breakdown, route.get("name", "מסלול"))
     route["auto_synced"] = False  # המסלול השתנה - נסמן מחדש את הקטעים המתאימים
-    doc_ref.set(route)
+
+    # כמו ב-save_route - ל-Firestore שומרים את הקואורדינטות ארוזות כמילונים
+    # (nested arrays אסורים שם), וללקוח מחזירים את route המקורי הרגיל
+    firestore_doc = dict(route)
+    firestore_doc["coordinates"] = _coords_to_firestore(coordinates)
+    doc_ref.set(firestore_doc)
     return jsonify({"status": "ok", "route": route})
 
 
