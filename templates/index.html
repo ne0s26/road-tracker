@@ -1,0 +1,1977 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>כבישים שנסעתי</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+
+    <style>
+        /* ============================================================
+           משתני עיצוב למצב יום/לילה - ברירת המחדל (:root) היא מצב יום,
+           ו-body.dark דורס אותם למצב לילה. כך אפשר לעבור מצב בלי לגעת
+           בכל כלל CSS בנפרד - רק להחליף את הערכים של המשתנים.
+           ============================================================ */
+        :root {
+            --bg-page: #f5f5f5;
+            --text-main: #111;
+            --text-muted: #444;
+            --bg-titlebar: rgba(255, 255, 255, 0.95);
+            --bg-round-btn: #ffffff;
+            --bg-panel: #fafafa;
+            --bg-panel-header: #fafafa;
+            --border-generic: #ddd;
+            --bg-more-menu: #f7f7f7;
+            --bg-item: #ffffff;
+            --shadow-item: rgba(0, 0, 0, 0.15);
+            --bg-progress-track: #eee;
+            --bg-legend: #f8fafc;
+            --bg-floating: rgba(255, 255, 255, 0.97);
+            --bg-load-btn: #f0f5ff;
+            --bg-trips-btn: #f5f0ff;
+            --bg-back-btn: #eee;
+            --active-outline: #111827;
+        }
+        body.dark {
+            --bg-page: #151517;
+            --text-main: #f0f0f0;
+            --text-muted: #b6b6b8;
+            --bg-titlebar: rgba(24, 24, 26, 0.94);
+            --bg-round-btn: #232326;
+            --bg-panel: #1c1c1e;
+            --bg-panel-header: #1c1c1e;
+            --border-generic: #3a3a3c;
+            --bg-more-menu: #222224;
+            --bg-item: #232326;
+            --shadow-item: rgba(0, 0, 0, 0.5);
+            --bg-progress-track: #3a3a3c;
+            --bg-legend: #222224;
+            --bg-floating: rgba(28, 28, 30, 0.96);
+            --bg-load-btn: #1c2a4a;
+            --bg-trips-btn: #2a1c4a;
+            --bg-back-btn: #2f2f31;
+            --active-outline: #f0f0f0;
+        }
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            font-family: Arial, sans-serif;
+            background: var(--bg-page);
+            color: var(--text-main);
+        }
+        #map {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 100%;
+        }
+
+        /* --- סרגל עליון --- */
+        #title-bar {
+            position: absolute;
+            top: 0;
+            right: 0;
+            left: 0;
+            z-index: 1000;
+            background: var(--bg-titlebar);
+            color: var(--text-main);
+            padding: 10px 14px;
+            text-align: center;
+            box-shadow: 0 1px 6px rgba(0, 0, 0, 0.25);
+        }
+        #title-bar .mode-text {
+            font-weight: bold;
+            font-size: 1em;
+        }
+        #summary-text {
+            font-size: 0.82em;
+            color: var(--text-muted);
+            margin-top: 3px;
+        }
+
+        /* --- כפתור מצב לילה --- */
+        #dark-mode-toggle {
+            position: absolute;
+            top: 66px;
+            right: 12px;
+            z-index: 1000;
+            background: var(--bg-round-btn);
+            color: var(--text-main);
+            border: none;
+            border-radius: 999px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            cursor: pointer;
+            width: 40px;
+            height: 40px;
+            font-size: 1.15em;
+            line-height: 1;
+        }
+
+        /* --- "טאב" פתיחת הפאנל, מוצמד לצד ימין של המסך (איפה שהפאנל עצמו
+           נפתח ממנו) - יותר אינטואיטיבי מכפתור נפרד בצד שני. אפשר גם ללחוץ
+           עליו וגם למשוך אותו שמאלה כדי לפתוח (ראו JS, panel-edge-tab) --- */
+        #panel-edge-tab {
+            position: fixed;
+            top: 50%;
+            right: 0;
+            transform: translateY(-50%);
+            z-index: 1500;
+            background: var(--bg-round-btn);
+            color: var(--text-main);
+            border: none;
+            border-radius: 14px 0 0 14px;
+            width: 26px;
+            height: 68px;
+            box-shadow: -2px 1px 8px rgba(0, 0, 0, 0.28);
+            cursor: pointer;
+            font-size: 1.15em;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            touch-action: none;
+        }
+
+        /* --- כפתור שמירה/עדכון של מסלול ביומן נסיעות --- */
+        #save-btn {
+            display: none;
+            position: absolute;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            padding: 12px 22px;
+            font-size: 1em;
+            font-weight: bold;
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 999px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+            cursor: pointer;
+        }
+        #cancel-edit-btn {
+            display: none;
+            position: absolute;
+            bottom: 24px;
+            left: calc(50% + 150px);
+            transform: translateX(-50%);
+            z-index: 1000;
+            padding: 12px 18px;
+            font-size: 0.95em;
+            background: #6b7280;
+            color: white;
+            border: none;
+            border-radius: 999px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+            cursor: pointer;
+        }
+        #route-info {
+            display: none;
+            position: absolute;
+            bottom: 70px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            background: rgba(0,0,0,0.75);
+            color: white;
+            padding: 6px 14px;
+            border-radius: 999px;
+            font-size: 0.85em;
+        }
+        /* בחירת "סוג נסיעה" למסלול לפני שמירה - כדי שאפשר יהיה לסווג
+           מסלול שלם בבת אחת, בלי לעבור קטע-קטע אחרי השמירה */
+        #travel-type-picker {
+            display: none;
+            position: absolute;
+            bottom: 112px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            gap: 5px;
+            background: var(--bg-floating);
+            padding: 6px;
+            border-radius: 999px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            max-width: 92vw;
+            overflow-x: auto;
+        }
+        #travel-type-picker button {
+            border: none;
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-size: 0.75em;
+            font-weight: 700;
+            cursor: pointer;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        #travel-type-picker button.active {
+            outline: 2px solid var(--active-outline);
+            outline-offset: 1px;
+        }
+
+        /* --- פאנל צד --- */
+        #panel-backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.35);
+            z-index: 1999;
+        }
+        #routes-panel {
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            right: 0;
+            width: min(320px, 88vw);
+            background: var(--bg-panel);
+            color: var(--text-main);
+            box-shadow: -2px 0 12px rgba(0, 0, 0, 0.3);
+            z-index: 2000;
+            transform: translateX(100%);
+            transition: transform 0.25s ease;
+            display: flex;
+            flex-direction: column;
+        }
+        #routes-panel.open {
+            transform: translateX(0);
+        }
+        #panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px;
+            border-bottom: 1px solid var(--border-generic);
+            font-weight: bold;
+            background: var(--bg-panel-header);
+        }
+        #panel-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        #panel-more-toggle {
+            border: none;
+            background: none;
+            font-size: 1.3em;
+            cursor: pointer;
+            line-height: 1;
+            color: #888;
+            padding: 0 2px;
+        }
+        #panel-close {
+            border: none;
+            background: none;
+            color: var(--text-main);
+            font-size: 1.3em;
+            cursor: pointer;
+            line-height: 1;
+        }
+        /* --- "עוד אפשרויות": טעינת כבישים + יומן נסיעות, מוסתרים כברירת
+           מחדל מתחת לתפריט קטן שנפתח רק בלחיצה על כפתור ה-⋯ --- */
+        #panel-more-menu {
+            display: none;
+            flex-direction: column;
+            gap: 8px;
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--border-generic);
+            background: var(--bg-more-menu);
+        }
+        #panel-more-menu.open {
+            display: flex;
+        }
+        .panel-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+        }
+        .panel-section {
+            display: none;
+        }
+        .panel-section.active {
+            display: block;
+        }
+
+        #show-trips-btn, #back-to-roads-btn, #sign-out-btn {
+            width: 100%;
+            padding: 10px;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 0.85em;
+        }
+        #show-trips-btn {
+            background: var(--bg-trips-btn);
+            border: 1px dashed #9333ea;
+            color: #9333ea;
+        }
+        #back-to-roads-btn {
+            background: var(--bg-back-btn);
+            border: none;
+            color: var(--text-main);
+            margin-bottom: 12px;
+        }
+        #sign-out-btn {
+            background: var(--bg-load-btn);
+            border: 1px dashed #dc2626;
+            color: #dc2626;
+            margin-top: 8px;
+        }
+        #panel-header-email {
+            font-size: 0.7em;
+            font-weight: normal;
+            color: var(--text-muted, #888);
+            opacity: 0.75;
+            margin-top: 2px;
+            direction: ltr;
+            text-align: right;
+        }
+
+        /* --- חיפוש + סינון ברשימת הכבישים --- */
+        #roads-toolbar {
+            margin-bottom: 10px;
+        }
+        #roads-search {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 8px 10px;
+            border-radius: 8px;
+            border: 1px solid var(--border-generic);
+            background: var(--bg-item);
+            color: var(--text-main);
+            font-size: 0.85em;
+            margin-bottom: 8px;
+        }
+        #roads-filter-chips {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .filter-chip {
+            border: 1px solid var(--border-generic);
+            background: var(--bg-item);
+            color: var(--text-muted);
+            border-radius: 999px;
+            padding: 5px 10px;
+            font-size: 0.75em;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .filter-chip.active {
+            background: #2563eb;
+            border-color: #2563eb;
+            color: #fff;
+        }
+
+        .road-item {
+            background: var(--bg-item);
+            border-radius: 8px;
+            padding: 8px 10px;
+            margin-bottom: 8px;
+            box-shadow: 0 1px 3px var(--shadow-item);
+        }
+        .road-item-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9em;
+            font-weight: bold;
+            margin-bottom: 4px;
+            cursor: pointer;
+        }
+        .road-progress-bar {
+            background: var(--bg-progress-track);
+            border-radius: 999px;
+            height: 6px;
+            overflow: hidden;
+            display: flex;
+        }
+        .road-progress-fill {
+            height: 100%;
+        }
+        .road-item-actions {
+            margin-top: 6px;
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .road-item-actions button {
+            border: none;
+            border-radius: 6px;
+            padding: 5px 9px;
+            font-size: 0.78em;
+            cursor: pointer;
+        }
+        .road-clear-confirm {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+        .road-clear-confirm-text {
+            font-size: 0.78em;
+            color: var(--text-muted);
+        }
+        .segment-list {
+            display: none;
+            margin-top: 8px;
+            max-height: 160px;
+            overflow-y: auto;
+        }
+        .segment-list.open {
+            display: block;
+        }
+        .segment-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 0.8em;
+            padding: 3px 0;
+            color: var(--text-muted);
+        }
+        .segment-row-swatches {
+            display: flex;
+            gap: 6px;
+        }
+        .segment-dot {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            border: 2px solid transparent;
+            padding: 0;
+            cursor: pointer;
+        }
+        .segment-dot.active {
+            border-color: var(--active-outline);
+        }
+        .travel-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px 12px;
+            font-size: 0.75em;
+            color: var(--text-muted);
+            margin-bottom: 10px;
+            padding: 7px 9px;
+            background: var(--bg-legend);
+            border-radius: 6px;
+        }
+        .travel-legend-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .travel-legend-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            flex-shrink: 0;
+        }
+
+        .trip-item {
+            background: var(--bg-item);
+            border-radius: 8px;
+            padding: 8px 10px;
+            margin-bottom: 8px;
+            box-shadow: 0 1px 3px var(--shadow-item);
+            font-size: 0.9em;
+        }
+        .trip-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .trip-item-subtitle {
+            margin-top: 4px;
+            font-size: 0.78em;
+            color: #666;
+        }
+        .trip-item-buttons button {
+            border: none;
+            border-radius: 6px;
+            padding: 5px 9px;
+            font-size: 0.8em;
+            margin-inline-start: 4px;
+            cursor: pointer;
+        }
+        .btn-edit { background: #fef3c7; color: #92400e; }
+        .btn-delete { background: #fee2e2; color: #991b1b; }
+        .btn-cancel { background: #e5e7eb; color: #374151; }
+        .btn-undo { background: #e0e7ff; color: #3730a3; }
+
+        .empty-hint {
+            color: #888;
+            font-size: 0.85em;
+            text-align: center;
+            padding: 20px 10px;
+        }
+
+        /* --- מסך התחברות --- */
+        #auth-gate {
+            position: fixed;
+            inset: 0;
+            z-index: 3000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(160deg, #eef2ff, #f8fafc);
+        }
+        body.dark #auth-gate {
+            background: linear-gradient(160deg, #0f172a, #1e293b);
+        }
+        #auth-gate-box {
+            background: var(--bg-panel, #fff);
+            border-radius: 18px;
+            padding: 40px 32px;
+            text-align: center;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+            max-width: 340px;
+            width: 90%;
+        }
+        #auth-gate-logo {
+            font-size: 2.6em;
+            margin-bottom: 8px;
+        }
+        #auth-gate-box h1 {
+            font-size: 1.3em;
+            margin: 0 0 8px;
+            color: var(--text-main);
+        }
+        #auth-gate-sub {
+            color: #888;
+            font-size: 0.9em;
+            margin: 0 0 24px;
+        }
+        #google-signin-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            width: 100%;
+            padding: 12px;
+            border-radius: 10px;
+            border: 1px solid #dadce0;
+            background: #fff;
+            color: #3c4043;
+            font-weight: bold;
+            font-size: 0.95em;
+            cursor: pointer;
+        }
+        #google-signin-btn:hover {
+            background: #f8f9fa;
+        }
+        #google-signin-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #4285f4;
+            color: #fff;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+        #auth-gate-status {
+            margin-top: 16px;
+            font-size: 0.85em;
+            color: #888;
+            min-height: 1.2em;
+        }
+        #auth-gate.hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="auth-gate">
+        <div id="auth-gate-box">
+            <div id="auth-gate-logo">🛣️</div>
+            <h1>כבישים שנסעתי</h1>
+            <p id="auth-gate-sub">התחבר כדי לשמור ולעקוב אחרי ההתקדמות שלך</p>
+            <button id="google-signin-btn">
+                <span id="google-signin-icon">G</span>
+                התחבר עם Google
+            </button>
+            <div id="auth-gate-status"></div>
+        </div>
+    </div>
+
+    <div id="title-bar">
+        <div class="mode-text" id="mode-text">📊 ...</div>
+        <div id="summary-text">טרם נטענה רשת כבישים</div>
+    </div>
+
+    <button id="dark-mode-toggle" title="מצב לילה">🌙</button>
+    <button id="panel-edge-tab" title="כבישים ומסלולים">🛣️</button>
+    <div id="map"></div>
+
+    <div id="route-info"></div>
+    <div id="travel-type-picker"></div>
+    <button id="cancel-edit-btn">✕ ביטול עריכה</button>
+    <button id="save-btn">💾 שמור מסלול</button>
+
+    <div id="panel-backdrop"></div>
+    <div id="routes-panel">
+        <div id="panel-header">
+            <span>
+                המסלולים שלי
+                <div id="panel-header-email"></div>
+            </span>
+            <div id="panel-header-actions">
+                <button id="panel-more-toggle" title="עוד אפשרויות">⋯</button>
+                <button id="panel-close">✕</button>
+            </div>
+        </div>
+        <div id="panel-more-menu">
+            <button id="show-trips-btn">📔 יומן נסיעות</button>
+            <button id="sign-out-btn">🚪 התנתק</button>
+        </div>
+        <div class="panel-body">
+            <div class="panel-section active" id="tab-roads">
+                <div id="roads-toolbar">
+                    <input type="text" id="roads-search" placeholder="🔍 חפש מספר כביש...">
+                    <div id="roads-filter-chips">
+                        <button class="filter-chip active" data-filter="all">הכל</button>
+                        <button class="filter-chip" data-filter="none">לא התחיל</button>
+                        <button class="filter-chip" data-filter="partial">בתהליך</button>
+                        <button class="filter-chip" data-filter="done">הושלם</button>
+                    </div>
+                </div>
+                <div class="travel-legend" id="travel-legend"></div>
+                <div id="roads-list"></div>
+            </div>
+            <div class="panel-section" id="tab-trips">
+                <button id="back-to-roads-btn">→ חזרה לכבישים</button>
+                <div id="trips-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // ============================================================
+        // אתחול המפה
+        // ============================================================
+        var map = L.map('map', { maxBoundsViscosity: 1.0 }).setView([31.5, 34.9], 8);
+
+        // מפה "נקייה" ופשוטה (Esri Light/Dark Gray Canvas) - רקע אפרפר מינימלי
+        // כמעט בלי צבעים, כדי שיהיה קל להתמקד בכבישים ובקטעים הצבועים עליהם.
+        // שכבת "Reference" מוסיפה רק שמות ערים/כבישים עיקריים בלי כל שאר הרעש.
+        // שתי השכבות (בסיס + תוויות) נשמרות במשתנים כדי שאפשר יהיה להחליף
+        // את כתובת ה-URL שלהן בזמן אמת (setUrl) במעבר בין מצב יום/לילה,
+        // בלי לבנות מחדש את כל שכבות המפה
+        var TILE_URLS = {
+            light: {
+                base: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+                ref: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}'
+            },
+            dark: {
+                base: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+                ref: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}'
+            }
+        };
+
+        var baseTileLayer = L.tileLayer(TILE_URLS.light.base, {
+            attribution: '&copy; <a href="https://www.esri.com">Esri</a>, HERE, Garmin, FAO, NOAA, USGS',
+            maxZoom: 16
+        }).addTo(map);
+
+        // פאנה מיוחדת לשכבת התוויות (שמות ערים) - מעל שכבת הרקע (200) אבל
+        // מתחת למסכה ולכבישים/מסלולים שלנו (overlayPane, 400), כדי שלא יכסו אותם
+        map.createPane('labelsPane');
+        map.getPane('labelsPane').style.zIndex = 350;
+        var labelsTileLayer = L.tileLayer(TILE_URLS.light.ref, {
+            maxZoom: 16,
+            pane: 'labelsPane'
+        }).addTo(map);
+
+        // ============================================================
+        // מצב לילה - מעבר גם של צבעי הממשק (משתני CSS על ה-body) וגם של
+        // שכבות המפה עצמן (Esri Dark Gray Canvas במקום Light Gray).
+        // הבחירה נשמרת ב-localStorage כדי שתישאר גם בפעם הבאה שפותחים
+        // את הדף (בלי צורך להתחבר/לזהות משתמש - זה דפדפן אישי אחד)
+        // ============================================================
+        var darkModeToggleBtn = document.getElementById('dark-mode-toggle');
+
+        function setDarkMode(on) {
+            document.body.classList.toggle('dark', on);
+            var urls = on ? TILE_URLS.dark : TILE_URLS.light;
+            baseTileLayer.setUrl(urls.base);
+            labelsTileLayer.setUrl(urls.ref);
+            darkModeToggleBtn.textContent = on ? '☀️' : '🌙';
+            try { localStorage.setItem('darkMode', on ? '1' : '0'); } catch (e) { /* מתעלמים - localStorage לא זמין */ }
+        }
+
+        var savedDarkMode = false;
+        try { savedDarkMode = localStorage.getItem('darkMode') === '1'; } catch (e) { /* מתעלמים */ }
+        setDarkMode(savedDarkMode);
+
+        darkModeToggleBtn.addEventListener('click', () => setDarkMode(!document.body.classList.contains('dark')));
+
+        // ============================================================
+        // (בעבר היה כאן פוליגון גיאוגרפי מפורט של תחום ישראל, ששימש לשליפה
+        // חד-פעמית של רשת הכבישים מ-OpenStreetMap/Overpass בדפדפן. באפליקציה
+        // הרב-משתמשית רשת הכבישים היא כבר קובץ משותף קבוע (static/road_network.json)
+        // שנטען ישירות, כך שאין יותר צורך בפוליגון הזה או בטעינה החוזרת - ראו
+        // loadSharedRoadNetwork למטה)
+        // (בעבר הייתה כאן "מסכה" שהסתירה ויזואלית את המדינות השכנות והגבילה
+        // גלילה/זום לתחום ישראל בלבד - הוסרה לבקשת המשתמש, כך שהמדינות
+        // השכנות שוב מוצגות כרגיל ואפשר לגלול ולהתרחק בלי הגבלה)
+        map.setView([31.5, 34.9], 8);
+
+        // תיקון לבאג שבו המפה מחשבת גודל לפני שהעמוד נטען לגמרי
+        window.addEventListener('load', () => map.invalidateSize());
+        window.addEventListener('resize', () => map.invalidateSize());
+
+        // ============================================================
+        // נתונים שהגיעו מהשרת (בדיוק כמו json.dumps בפייתון, רק שזה נטמע כאובייקט JS)
+        // ============================================================
+        // הנתונים האלה כבר לא מגיעים משתי מוטמעים בשרת (כמו Jinja tojson) כי
+        // האפליקציה הרב-משתמשית דורשת התחברות לפני שיודעים של מי הנתונים
+        // להביא בכלל. במקום זה הם מתחילים ריקים, ומתמלאים בפועל ע"י
+        // initApp() למטה - אחרי שהמשתמש מתחבר עם Google ונטענים גם רשת
+        // הכבישים המשותפת (קובץ סטטי) וגם הנתונים האישיים שלו מהשרת
+        let savedTrips = [];          // יומן הנסיעות החופשי
+        let roadNetwork = {};         // { "444": [ {id, coords, length}, ... ], ... }
+        let progressData = {};        // { "444": { "<segmentId>": "drove"/"rode"/... }, ... }
+
+        // ============================================================
+        // התחברות עם Google (Firebase Auth) - האפליקציה כעת רב-משתמשית,
+        // וכל בקשה לשרת (מעבר לטעינת /static/road_network.json המשותף)
+        // דורשת טוקן זיהוי תקף שמצורף ככותרת Authorization
+        // ============================================================
+        var firebaseConfig = {{ firebase_config | tojson }};
+        firebase.initializeApp(firebaseConfig);
+        var auth = firebase.auth();
+        var currentIdToken = null;
+
+        var authGateEl = document.getElementById('auth-gate');
+        var authGateStatusEl = document.getElementById('auth-gate-status');
+        var panelHeaderEmailEl = document.getElementById('panel-header-email');
+        var appInitialized = false;
+
+        document.getElementById('google-signin-btn').addEventListener('click', () => {
+            authGateStatusEl.textContent = 'מתחבר...';
+            var provider = new firebase.auth.GoogleAuthProvider();
+            auth.signInWithPopup(provider).catch(err => {
+                console.error(err);
+                authGateStatusEl.textContent = 'ההתחברות נכשלה, נסה שוב';
+            });
+        });
+
+        document.getElementById('sign-out-btn').addEventListener('click', () => {
+            auth.signOut();
+        });
+
+        // עוטף fetch רגיל: מצרף לכל בקשה את טוקן ה-Firebase הנוכחי ככותרת
+        // Authorization, כדי שהשרת יוכל לאמת מי המשתמש בלי לסמוך על שום
+        // דבר שהלקוח שולח (השרת קורא את המייל מתוך הטוקן המאומת בלבד)
+        function apiFetch(url, options) {
+            options = options || {};
+            options.headers = Object.assign({}, options.headers || {});
+            if (currentIdToken) {
+                options.headers['Authorization'] = 'Bearer ' + currentIdToken;
+            }
+            return fetch(url, options);
+        }
+
+        // טוקן ה-Firebase מתרענן אוטומטית ברקע (תוקף קצר) - שומרים תמיד עותק עדכני
+        auth.onIdTokenChanged(user => {
+            if (user) user.getIdToken().then(token => { currentIdToken = token; });
+        });
+
+        auth.onAuthStateChanged(user => {
+            if (user) {
+                panelHeaderEmailEl.textContent = user.email || '';
+                user.getIdToken().then(token => {
+                    currentIdToken = token;
+                    authGateEl.classList.add('hidden');
+                    initApp();
+                });
+            } else {
+                currentIdToken = null;
+                appInitialized = false;
+                panelHeaderEmailEl.textContent = '';
+                authGateStatusEl.textContent = '';
+                authGateEl.classList.remove('hidden');
+            }
+        });
+
+        // נקראת פעם אחת אחרי כל התחברות מוצלחת: טוענת יחד את רשת הכבישים
+        // המשותפת (קובץ סטטי, זהה לכולם) ואת הנתונים האישיים של המשתמש
+        // (מסלולים + התקדמות) מהשרת, ורק אז מריצה את כל הציורים/הרינדורים
+        // שהיו בעבר קוד ברמה עליונה של הסקריפט ורצים מיד עם טעינת הדף
+        function initApp() {
+            if (appInitialized) return;
+            appInitialized = true;
+            document.getElementById('summary-text').textContent = 'טוען נתונים...';
+            Promise.all([
+                loadSharedRoadNetwork(),
+                apiFetch('/api/bootstrap').then(r => {
+                    if (!r.ok) throw new Error('bootstrap failed: ' + r.status);
+                    return r.json();
+                })
+            ]).then(([_, data]) => {
+                savedTrips = data.routes || [];
+                progressData = data.progress || {};
+
+                renderRoadNetwork();
+                renderRoadsList();
+                savedTrips.forEach(drawTrip);
+                renderTripsList();
+
+                // תיקון חד-פעמי: מסלולים ששמורים כבר ביומן הנסיעות (קו כחול)
+                // ועדיין לא עברו סנכרון (auto_synced) - מסמנים את הקטעים המתאימים
+                // ברשת הכבישים כ"נסעתי בהם" כדי שייכללו באחוז ההתקדמות הכולל
+                savedTrips.forEach(trip => {
+                    if (!trip.auto_synced && trip.breakdown && trip.breakdown.length > 0) {
+                        markSegmentsFromTrip(trip.coordinates, trip.breakdown, trip.id);
+                    }
+                });
+            }).catch(err => {
+                console.error(err);
+                appInitialized = false;
+                document.getElementById('summary-text').textContent = 'שגיאה בטעינת הנתונים - נסה לרענן';
+            });
+        }
+
+        // ============================================================
+        // עזרי מרחק - נוסחת Haversine (מרחק בין שתי נקודות על כדור הארץ)
+        // ============================================================
+        function haversine(p1, p2) {
+            const R = 6371000; // רדיוס כדור הארץ במטרים
+            const toRad = d => d * Math.PI / 180;
+            const dLat = toRad(p2[0] - p1[0]);
+            const dLon = toRad(p2[1] - p1[1]);
+            const a = Math.sin(dLat / 2) ** 2 +
+                Math.cos(toRad(p1[0])) * Math.cos(toRad(p2[0])) * Math.sin(dLon / 2) ** 2;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        }
+
+        function polylineLength(coords) {
+            let total = 0;
+            for (let i = 1; i < coords.length; i++) total += haversine(coords[i - 1], coords[i]);
+            return total;
+        }
+
+        // ============================================================
+        // "עמוד שדרה" (spine) לכביש - מיזוג קטעים לקו רציף אחד, כדי שנוכל
+        // להגיד "נקודה X נמצאת בערך בק"מ Y". זו הערכה גיאומטרית מקירוב,
+        // ולא מספרי הק"מ הרשמיים שעל השלטים בכביש. בכוונה בונים את זה
+        // "מקומית" (רק קטעים ליד הנסיעה עצמה) ולא לאורך כל הכביש בארץ בבת אחת -
+        // כבישים ראשיים רבים מפוצלים לשני נתיבים מקבילים (הלוך/חזור) בישראל,
+        // ומיזוג כל הקטעים בארץ לקו אחד "קופץ" ביניהם ומקלקל את חישוב המרחק.
+        // ============================================================
+        function buildSpine(segments) {
+            if (!segments || segments.length === 0) return [];
+
+            const remaining = segments.map(s => s.coords.slice());
+
+            // עוגן ההתחלה (ק"מ 0) - הנקודה הדרומית ביותר מכל הקטעים
+            let start = remaining[0][0];
+            remaining.forEach(coords => {
+                [coords[0], coords[coords.length - 1]].forEach(pt => {
+                    if (pt[0] < start[0]) start = pt;
+                });
+            });
+
+            const spinePoints = [];
+            let cursor = start;
+
+            while (remaining.length > 0) {
+                let bestIdx = 0, bestDist = Infinity, bestReversed = false;
+                remaining.forEach((coords, idx) => {
+                    const dStart = haversine(cursor, coords[0]);
+                    const dEnd = haversine(cursor, coords[coords.length - 1]);
+                    if (dStart < bestDist) { bestDist = dStart; bestIdx = idx; bestReversed = false; }
+                    if (dEnd < bestDist) { bestDist = dEnd; bestIdx = idx; bestReversed = true; }
+                });
+
+                const chosen = remaining.splice(bestIdx, 1)[0];
+                const coords = bestReversed ? chosen.slice().reverse() : chosen;
+                coords.forEach(pt => spinePoints.push(pt));
+                cursor = coords[coords.length - 1];
+            }
+
+            // מרחק מצטבר מתחילת ה"עמוד שדרה"
+            let cumulative = 0;
+            return spinePoints.map((pt, i) => {
+                if (i > 0) cumulative += haversine(spinePoints[i - 1], pt);
+                return [pt[0], pt[1], cumulative];
+            });
+        }
+
+        // מוצא את המרחק (במטרים) של נקודה על "עמוד שדרה" נתון - הכי קרובה מבין נקודותיו
+        function distanceOnSpine(spine, point) {
+            let best = { dist: Infinity, cum: 0 };
+            spine.forEach(pt => {
+                const d = haversine(point, pt);
+                if (d < best.dist) best = { dist: d, cum: pt[2] };
+            });
+            return best.cum;
+        }
+
+        // ============================================================
+        // שלב 4: רשת הכבישים הממוספרים + מעקב התקדמות
+        // ============================================================
+        const roadsLayerGroup = L.layerGroup().addTo(map);
+        let segmentLayers = {}; // ref -> { segmentId -> leaflet layer }
+
+        // ============================================================
+        // "סוגי נסיעה" - כל קטע כביש שסומן מקבל אחד מהסוגים האלה, כל אחד
+        // עם צבע משלו. קטע לא מסומן = אפור (NOT_DONE_COLOR)
+        // ============================================================
+        const TRAVEL_TYPES = [
+            { key: 'drove', label: 'נהגתי', color: '#16a34a' },   // ירוק
+            { key: 'rode', label: 'נסעתי', color: '#eab308' },    // צהוב
+            { key: 'guided', label: 'הכוונתי', color: '#9333ea' }, // סגול
+            { key: 'walked', label: 'הלכתי', color: '#2563eb' }   // כחול
+        ];
+        const NOT_DONE_COLOR = '#9ca3af';
+
+        function travelTypeByKey(key) {
+            return TRAVEL_TYPES.find(t => t.key === key);
+        }
+
+        function segmentStatus(ref, segId) {
+            return (progressData[ref] && progressData[ref][segId]) || null;
+        }
+
+        function segmentIsDone(ref, segId) {
+            return !!segmentStatus(ref, segId);
+        }
+
+        function segmentColor(ref, segId) {
+            const type = travelTypeByKey(segmentStatus(ref, segId));
+            return type ? type.color : NOT_DONE_COLOR;
+        }
+
+        function renderTravelLegend() {
+            const el = document.getElementById('travel-legend');
+            if (!el || el.dataset.rendered) return;
+            el.dataset.rendered = '1';
+            el.innerHTML = TRAVEL_TYPES.map(t =>
+                `<span class="travel-legend-item"><span class="travel-legend-dot" style="background:${t.color}"></span>${t.label}</span>`
+            ).join('') + `<span class="travel-legend-item"><span class="travel-legend-dot" style="background:${NOT_DONE_COLOR}"></span>עוד לא</span>`;
+        }
+
+        function renderRoadNetwork() {
+            roadsLayerGroup.clearLayers();
+            segmentLayers = {};
+
+            Object.keys(roadNetwork).forEach(ref => {
+                segmentLayers[ref] = {};
+                roadNetwork[ref].forEach(seg => {
+                    const line = L.polyline(seg.coords, {
+                        color: segmentColor(ref, seg.id),
+                        weight: 4,
+                        opacity: 0.85
+                    }).addTo(roadsLayerGroup);
+
+                    line.bindTooltip('כביש ' + ref, { sticky: true });
+
+                    // עצירת התפשטות הלחיצה, כדי שזה לא יתחיל גם סימון מסלול חדש ביומן הנסיעות
+                    line.on('click', function (e) {
+                        L.DomEvent.stopPropagation(e);
+                        openSegmentStatusPicker(ref, seg.id, e.latlng);
+                    });
+
+                    segmentLayers[ref][seg.id] = line;
+                });
+            });
+
+            updateSummary();
+        }
+
+        // פותח בועית קטנה במקום הלחיצה על המפה, עם כפתור לכל סוג נסיעה
+        function openSegmentStatusPicker(ref, segId, latlng) {
+            const currentStatus = segmentStatus(ref, segId);
+
+            const wrap = document.createElement('div');
+            wrap.style.cssText = 'display:flex; flex-direction:column; gap:4px; min-width:150px;';
+
+            const title = document.createElement('div');
+            title.style.cssText = 'font-size:0.8em; color:#555; margin-bottom:2px; font-weight:600;';
+            title.textContent = `כביש ${ref} - איך נסעת בקטע הזה?`;
+            wrap.appendChild(title);
+
+            TRAVEL_TYPES.forEach(type => {
+                const isActive = currentStatus === type.key;
+                const btn = document.createElement('button');
+                btn.textContent = (isActive ? '✓ ' : '') + type.label;
+                btn.style.cssText = `display:block; width:100%; border:none; border-radius:6px; ` +
+                    `padding:6px 8px; margin:0; cursor:pointer; text-align:right; font-weight:600; ` +
+                    `background:${type.color}${isActive ? '' : '22'}; color:${isActive ? '#fff' : type.color};`;
+                btn.addEventListener('click', () => {
+                    setSegmentStatus(ref, segId, isActive ? null : type.key);
+                    map.closePopup();
+                });
+                wrap.appendChild(btn);
+            });
+
+            if (currentStatus) {
+                const clearBtn = document.createElement('button');
+                clearBtn.textContent = '✕ נקה סימון';
+                clearBtn.style.cssText = 'display:block; width:100%; border:none; border-radius:6px; ' +
+                    'padding:6px 8px; margin-top:2px; cursor:pointer; background:#f3f4f6; color:#374151;';
+                clearBtn.addEventListener('click', () => {
+                    setSegmentStatus(ref, segId, null);
+                    map.closePopup();
+                });
+                wrap.appendChild(clearBtn);
+            }
+
+            L.popup({ maxWidth: 220 })
+                .setLatLng(latlng)
+                .setContent(wrap)
+                .openOn(map);
+        }
+
+        function setSegmentStatus(ref, segId, statusValue) {
+            apiFetch('/api/set_segment_status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ref: ref, segment_id: segId, status: statusValue })
+            })
+                .then(r => r.json())
+                .then(result => {
+                    if (result.status !== 'ok') { alert('שגיאה בעדכון הכביש'); return; }
+
+                    progressData[ref] = progressData[ref] || {};
+                    if (statusValue) {
+                        progressData[ref][segId] = statusValue;
+                    } else {
+                        delete progressData[ref][segId];
+                    }
+
+                    const layer = segmentLayers[ref] && segmentLayers[ref][segId];
+                    if (layer) layer.setStyle({ color: segmentColor(ref, segId) });
+
+                    updateSummary();
+                    renderRoadsList();
+                })
+                .catch(err => {
+                    console.error(err);
+                    alert('שגיאה בעדכון הכביש - בדוק חיבור לאינטרנט');
+                });
+        }
+
+        // מנקה בבת אחת את כל הסימונים (כל סוגי הנסיעה) של כביש שלם - מחזיר
+        // את כל הקטעים שלו לאפור/"לא נסעתי". שימושי כדי להתחיל לתעד כביש
+        // מסוים מחדש מאפס, בלי לעבור קטע-קטע על המפה או ברשימה
+        function clearRoadProgress(ref) {
+            apiFetch('/api/clear_road_progress/' + ref, { method: 'POST' })
+                .then(r => r.json())
+                .then(result => {
+                    if (result.status !== 'ok') { alert('שגיאה בניקוי ההתקדמות'); return; }
+
+                    delete progressData[ref];
+
+                    const layers = segmentLayers[ref] || {};
+                    Object.keys(layers).forEach(segId => {
+                        layers[segId].setStyle({ color: segmentColor(ref, segId) });
+                    });
+
+                    updateSummary();
+                    renderRoadsList();
+                })
+                .catch(err => {
+                    console.error(err);
+                    alert('שגיאה בניקוי ההתקדמות - בדוק חיבור לאינטרנט');
+                });
+        }
+
+        function updateSummary() {
+            const refs = Object.keys(roadNetwork);
+            const summaryEl = document.getElementById('summary-text');
+
+            if (refs.length === 0) {
+                summaryEl.textContent = 'טרם נטענה רשת כבישים - פתח את פאנל "כבישים" כדי לטעון';
+                updateModeText(null);
+                return;
+            }
+
+            let completedRoads = 0, totalLength = 0, doneLength = 0;
+
+            refs.forEach(ref => {
+                let refTotal = 0, refDone = 0;
+                roadNetwork[ref].forEach(seg => {
+                    refTotal += seg.length;
+                    totalLength += seg.length;
+                    if (segmentIsDone(ref, seg.id)) { refDone += seg.length; doneLength += seg.length; }
+                });
+                if (refTotal > 0 && refDone >= refTotal - 1) completedRoads++;
+            });
+
+            const pct = totalLength > 0 ? Math.round((doneLength / totalLength) * 100) : 0;
+            summaryEl.textContent =
+                `${completedRoads}/${refs.length} כבישים הושלמו · ` +
+                `${(doneLength / 1000).toFixed(1)} מתוך ${(totalLength / 1000).toFixed(1)} ק"מ (${pct}%)`;
+
+            updateModeText(pct);
+        }
+
+        // מציגים בסרגל העליון (איפה שבעבר תמיד הופיעה הוראת "לחץ על נקודת
+        // התחלה...") את אחוז ההתקדמות הכולל במקום - בדיוק כמו שהוא מופיע
+        // בסוגריים בשורת הסיכום מתחת - כדי שהוא יהיה גלוי תמיד בלי לפתוח
+        // שום תפריט. חריג יחיד: במצב "עריכת מסלול" משאירים את הודעת
+        // העריכה הרלוונטית (איזה מסלול עורכים) כמו שהיא
+        function updateModeText(pct) {
+            if (editingTripId) return;
+            modeText.textContent = pct === null ? '🗺️ טרם נטענה רשת כבישים' : `📊 ${pct}%`;
+        }
+
+        // מצב חיפוש/סינון נוכחי ברשימת הכבישים - נשמר בין רינדורים כדי
+        // שהרשימה תישאר מסוננת גם אחרי עדכון התקדמות (למשל אחרי סימון קטע)
+        let roadsSearchQuery = '';
+        let roadsFilterMode = 'all'; // all | none (לא התחיל) | partial (בתהליך) | done (הושלם)
+
+        function renderRoadsList() {
+            renderTravelLegend();
+            const container = document.getElementById('roads-list');
+            const toolbar = document.getElementById('roads-toolbar');
+            const allRefs = Object.keys(roadNetwork).sort((a, b) => Number(a) - Number(b));
+
+            if (allRefs.length === 0) {
+                toolbar.style.display = 'none';
+                container.innerHTML = '<div class="empty-hint">עדיין לא נטענה רשת כבישים.<br>לחץ על "⋯" למעלה כדי לטעון אותה (חד פעמי).</div>';
+                return;
+            }
+            toolbar.style.display = 'block';
+
+            // מחשבים מראש את ההתקדמות של כל כביש - גם כדי לצייר את פס
+            // ההתקדמות המפוצל לפי סוג נסיעה, וגם כדי שאפשר יהיה לסנן לפי
+            // "הושלם/בתהליך/לא התחיל" בלי לחשב את זה פעמיים
+            const roadsStats = allRefs.map(ref => {
+                const segs = roadNetwork[ref];
+                let refTotal = 0;
+                let markedCount = 0;
+                const doneByType = {};
+                TRAVEL_TYPES.forEach(t => { doneByType[t.key] = 0; });
+                segs.forEach(seg => {
+                    refTotal += seg.length;
+                    const st = segmentStatus(ref, seg.id);
+                    if (st) {
+                        doneByType[st] = (doneByType[st] || 0) + seg.length;
+                        markedCount++;
+                    }
+                });
+                const refDone = TRAVEL_TYPES.reduce((sum, t) => sum + doneByType[t.key], 0);
+                const pct = refTotal > 0 ? Math.round((refDone / refTotal) * 100) : 0;
+                return { ref, segs, doneByType, pct, refTotal, markedCount };
+            });
+
+            const query = roadsSearchQuery.trim();
+            const filtered = roadsStats.filter(r => {
+                if (query && !r.ref.includes(query)) return false;
+                if (roadsFilterMode === 'none' && r.pct !== 0) return false;
+                if (roadsFilterMode === 'partial' && (r.pct === 0 || r.pct === 100)) return false;
+                if (roadsFilterMode === 'done' && r.pct !== 100) return false;
+                return true;
+            });
+
+            if (filtered.length === 0) {
+                container.innerHTML = '<div class="empty-hint">אין כבישים שתואמים את החיפוש/הסינון.</div>';
+                return;
+            }
+
+            container.innerHTML = '';
+            filtered.forEach(({ ref, segs, doneByType, pct, refTotal, markedCount }) => {
+                // פס ההתקדמות מחולק לפי סוג הנסיעה בפועל (נהגתי/נסעתי/הכוונתי/הלכתי)
+                // כך שכל חלק בפס צבוע בצבע התואם את סוג ההתקדמות שלו, ולא ירוק אחיד
+                const barFills = TRAVEL_TYPES.map(t => {
+                    const typePct = refTotal > 0 ? (doneByType[t.key] / refTotal) * 100 : 0;
+                    if (typePct <= 0) return '';
+                    return `<div class="road-progress-fill" style="width:${typePct}%;background:${t.color}" title="${t.label}"></div>`;
+                }).join('');
+
+                const item = document.createElement('div');
+                item.className = 'road-item';
+                item.innerHTML = `
+                    <div class="road-item-header">
+                        <span>כביש ${ref}</span>
+                        <span>${pct}% (${segs.length} קטעים)</span>
+                    </div>
+                    <div class="road-progress-bar">${barFills}</div>
+                `;
+
+                // כפתור "נקה התקדמות" - רק לכבישים שיש בהם בכלל משהו לנקות
+                // (בתהליך או הושלמו). לוחצים -> מופיע אישור קטן ("כן, נקה" /
+                // "ביטול") כדי למנוע ניקוי בטעות של כביש שיש בו הרבה קטעים מסומנים
+                if (markedCount > 0) {
+                    const actions = document.createElement('div');
+                    actions.className = 'road-item-actions';
+                    actions.innerHTML = `
+                        <button class="btn-delete btn-clear-road">🗑️ נקה התקדמות</button>
+                        <span class="road-clear-confirm" style="display:none;">
+                            <span class="road-clear-confirm-text">לנקות ${markedCount} קטעים מסומנים בכביש ${ref}?</span>
+                            <button class="btn-delete btn-clear-confirm">כן, נקה</button>
+                            <button class="btn-cancel btn-clear-cancel">ביטול</button>
+                        </span>
+                    `;
+
+                    const clearBtn = actions.querySelector('.btn-clear-road');
+                    const confirmRow = actions.querySelector('.road-clear-confirm');
+                    clearBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        clearBtn.style.display = 'none';
+                        confirmRow.style.display = 'inline-flex';
+                    });
+                    actions.querySelector('.btn-clear-cancel').addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        confirmRow.style.display = 'none';
+                        clearBtn.style.display = 'inline-block';
+                    });
+                    actions.querySelector('.btn-clear-confirm').addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        clearRoadProgress(ref);
+                    });
+
+                    item.appendChild(actions);
+                }
+
+                const segList = document.createElement('div');
+                segList.className = 'segment-list';
+                segs.forEach((seg, idx) => {
+                    const row = document.createElement('div');
+                    row.className = 'segment-row';
+
+                    const label = document.createElement('span');
+                    label.textContent = 'קטע ' + (idx + 1);
+                    row.appendChild(label);
+
+                    const swatches = document.createElement('span');
+                    swatches.className = 'segment-row-swatches';
+                    const currentStatus = segmentStatus(ref, seg.id);
+
+                    TRAVEL_TYPES.forEach(type => {
+                        const dot = document.createElement('button');
+                        dot.className = 'segment-dot' + (currentStatus === type.key ? ' active' : '');
+                        dot.style.background = type.color;
+                        dot.title = type.label;
+                        dot.addEventListener('click', () => {
+                            setSegmentStatus(ref, seg.id, currentStatus === type.key ? null : type.key);
+                        });
+                        swatches.appendChild(dot);
+                    });
+                    row.appendChild(swatches);
+
+                    segList.appendChild(row);
+                });
+                item.appendChild(segList);
+
+                item.querySelector('.road-item-header').addEventListener('click', () => {
+                    segList.classList.toggle('open');
+                });
+
+                container.appendChild(item);
+            });
+        }
+
+        document.getElementById('roads-search').addEventListener('input', (e) => {
+            roadsSearchQuery = e.target.value;
+            renderRoadsList();
+        });
+
+        document.querySelectorAll('.filter-chip').forEach(chip => {
+            chip.addEventListener('click', () => {
+                document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+                chip.classList.add('active');
+                roadsFilterMode = chip.dataset.filter;
+                renderRoadsList();
+            });
+        });
+
+        // --- רשת הכבישים המשותפת: קובץ סטטי קבוע (נטען פעם אחת בעליית
+        // האפליקציה ע"י המפתח, ראו README) - אותה רשת לכל המשתמשים, אין
+        // יותר טעינה חיה מ-Overpass מתוך הדפדפן בכל פתיחה ---
+        function loadSharedRoadNetwork() {
+            return fetch('/static/road_network.json')
+                .then(r => r.json())
+                .then(data => { roadNetwork = data; });
+        }
+
+        // editingTripId ו-modeText מוגדרים כאן, לפני הקריאה הראשונה ל-
+        // renderRoadNetwork/updateSummary בתוך initApp למטה, כי
+        // updateModeTextIdle() (שמציגה את אחוז ההתקדמות הכולל בסרגל העליון)
+        // נשענת עליהם כבר מהריצה הראשונה
+        let editingTripId = null; // אם לא null - אנחנו במצב "עריכה" של מסלול קיים
+        const modeText = document.getElementById('mode-text');
+
+        // ============================================================
+        // שלב 2-3: יומן נסיעות חופשי - סימון, שמירה, עריכה ומחיקה
+        // ============================================================
+        let markers = [];
+        let routeLine = null;
+        let currentCoordinates = null;
+
+        const saveBtn = document.getElementById('save-btn');
+        const cancelEditBtn = document.getElementById('cancel-edit-btn');
+        const routeInfo = document.getElementById('route-info');
+        const travelTypePicker = document.getElementById('travel-type-picker');
+
+        // ============================================================
+        // בחירת "סוג נסיעה" למסלול לפני שמירה - 5 אפשרויות: 4 סוגי הנסיעה
+        // (TRAVEL_TYPES, מוגדר למעלה) ועוד "הסר מקטעים" (לא לסמן כלום).
+        // ככה אפשר לסווג מסלול שלם במכה אחת, ולשנות מסלולים קיימים מהר
+        // (עריכה + בחירת סוג אחר + שמירה) בלי לעבור קטע-קטע על המפה.
+        // ============================================================
+        let selectedTravelType = 'drove'; // ברירת מחדל - נהגתי
+        const TRAVEL_TYPE_PICKER_OPTIONS = TRAVEL_TYPES.concat([
+            { key: null, label: '🚫 הסר מקטעים', color: '#6b7280' }
+        ]);
+
+        function renderTravelTypePicker() {
+            travelTypePicker.innerHTML = '';
+            TRAVEL_TYPE_PICKER_OPTIONS.forEach(opt => {
+                const btn = document.createElement('button');
+                const isActive = selectedTravelType === opt.key;
+                btn.textContent = opt.label;
+                btn.style.background = isActive ? opt.color : opt.color + '22';
+                btn.style.color = isActive ? '#fff' : opt.color;
+                if (isActive) btn.classList.add('active');
+                btn.addEventListener('click', () => {
+                    selectedTravelType = opt.key;
+                    renderTravelTypePicker();
+                });
+                travelTypePicker.appendChild(btn);
+            });
+        }
+        renderTravelTypePicker();
+
+        // לא מוסיפים את הקבוצה למפה בכוונה - המסלולים מיומן הנסיעות (יומן נסיעות)
+        // כבר "מומרים" אוטומטית לקטעים ירוקים ברשת הכבישים (ראו markSegmentsFromTrip),
+        // אז אין צורך גם לצייר אותם כקו כחול על המפה - כדי שהתצוגה תישאר פשוטה
+        // ומשתמש יראה רק קטעי כביש: ירוק (נסעתי) או אפור (עוד לא), בלי כפילות
+        const tripsLayerGroup = L.layerGroup();
+        let tripLayers = {}; // tripId -> leaflet layer (נשמר בזיכרון בלבד, לא מוצג על המפה)
+
+        function drawTrip(trip) {
+            const layer = L.geoJSON(
+                { type: 'LineString', coordinates: trip.coordinates },
+                { style: { color: '#2563eb', weight: 5, opacity: 0.7 } }
+            ).addTo(tripsLayerGroup);
+            tripLayers[trip.id] = layer;
+        }
+
+        // (הקריאה בפועל - savedTrips.forEach(drawTrip) - זזה ל-initApp() למטה,
+        // כי בזמן הזה savedTrips עדיין ריק - מתמלא רק אחרי התחברות וטעינת הנתונים)
+
+        function resetDrawingState() {
+            markers.forEach(m => map.removeLayer(m));
+            markers = [];
+            if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+            currentCoordinates = null;
+            currentBreakdown = [];
+            saveBtn.style.display = 'none';
+            routeInfo.style.display = 'none';
+            travelTypePicker.style.display = 'none';
+            selectedTravelType = 'drove'; // איפוס לברירת המחדל לקראת המסלול הבא
+            renderTravelTypePicker();
+        }
+
+        function enterEditMode(trip) {
+            resetDrawingState();
+            editingTripId = trip.id;
+
+            // משחזרים מיד את המסלול הקיים (בלי לחייב לצייר אותו מחדש) -
+            // כדי שאפשר יהיה לבחור סוג נסיעה אחר (או "🚫 הסר מקטעים")
+            // וללחוץ שמירה מיד. עדיין אפשר, אם רוצים, ללחוץ 2 נקודות
+            // חדשות על המפה כדי לצייר מסלול שונה במקום זה
+            if (trip.coordinates && trip.coordinates.length > 1) {
+                currentCoordinates = trip.coordinates;
+                currentBreakdown = trip.breakdown || [];
+
+                routeLine = L.geoJSON(
+                    { type: 'LineString', coordinates: trip.coordinates },
+                    { style: { color: '#f59e0b', weight: 5 } }
+                ).addTo(map);
+                try { map.fitBounds(routeLine.getBounds(), { maxZoom: 14, padding: [40, 40] }); } catch (e) { }
+
+                const km = (polylineLength(trip.coordinates.map(c => [c[1], c[0]])) / 1000).toFixed(1);
+                const breakdownText = formatBreakdown(currentBreakdown);
+                routeInfo.textContent = `${km} ק"מ` + (breakdownText ? ' · ' + breakdownText : '');
+                routeInfo.style.display = 'block';
+
+                saveBtn.style.display = 'block';
+                travelTypePicker.style.display = 'flex';
+                selectedTravelType = inferCurrentTravelType(trip);
+                renderTravelTypePicker();
+            }
+
+            modeText.textContent = `✏️ עורך את "${trip.name}" - בחר סוג נסיעה ולחץ שמירה, או לחץ נקודת התחלה חדשה כדי לצייר מסלול אחר`;
+            cancelEditBtn.style.display = 'block';
+            saveBtn.textContent = '💾 עדכן מסלול';
+            togglePanel(false);
+        }
+
+        function exitEditMode(restoreOriginal) {
+            // הערה: לא מוסיפים בחזרה למפה (tripsLayerGroup לא מוצג בכוונה - ראו למעלה)
+            editingTripId = null;
+            cancelEditBtn.style.display = 'none';
+            saveBtn.textContent = '💾 שמור מסלול';
+            updateSummary(); // מחזיר את הסרגל העליון להציג את אחוז ההתקדמות הכולל
+            resetDrawingState();
+        }
+
+        cancelEditBtn.addEventListener('click', () => exitEditMode(true));
+
+        map.on('click', function (e) {
+            if (markers.length >= 2) {
+                resetDrawingState();
+            } else if (markers.length === 0 && routeLine) {
+                // מנקים קו תצוגה מקדים ישן (למשל מהצגת המסלול הקיים במצב
+                // עריכה, לפני שציירו נקודות חדשות) לפני שמתחילים מסלול חדש
+                map.removeLayer(routeLine);
+                routeLine = null;
+            }
+
+            const marker = L.marker(e.latlng).addTo(map);
+            markers.push(marker);
+
+            if (markers.length === 2) {
+                getRoute(markers[0].getLatLng(), markers[1].getLatLng());
+            }
+        });
+
+        let currentBreakdown = []; // פירוט לפי כביש (ref, ק"מ מ-עד) של המסלול הנוכחי
+
+        // עוברים על ה"צעדים" (steps) שהחזיר OSRM, ומקבצים צעדים עוקבים על אותו כביש ממוספר
+        // יחד - כדי לדעת "נסעת בכביש 6 בערך מק"מ 42 עד ק"מ 58"
+        function computeRoadBreakdown(steps) {
+            // מעבר ראשון - מזהים רצפי צעדים עוקבים על אותו כביש ממוספר (עדיין בלי לחשב ק"מ)
+            const rawGroups = [];
+            let current = null;
+
+            // כל "צעד" (step) של OSRM נותן רק את נקודת ההתחלה שלו (maneuver.location) -
+            // כדי לדעת גם איפה הצעד מסתיים, משתמשים בנקודת ההתחלה של הצעד הבא אחריו
+            for (let i = 0; i < steps.length; i++) {
+                const step = steps[i];
+                const nextStep = steps[i + 1];
+
+                // OSRM שם את מספר הכביש בתגית ref (לפעמים כמה מספרים מופרדים ב-";")
+                const rawRef = step.ref || '';
+                const ref = rawRef.split(';')[0].trim();
+                const startLoc = step.maneuver && step.maneuver.location; // [lon, lat]
+                const endLoc = nextStep && nextStep.maneuver && nextStep.maneuver.location;
+
+                const isKnownRoad = ref && roadNetwork[ref] && startLoc && endLoc;
+
+                if (isKnownRoad) {
+                    const startPt = [startLoc[1], startLoc[0]];
+                    const endPt = [endLoc[1], endLoc[0]];
+
+                    if (current && current.ref === ref) {
+                        current.distance += step.distance;
+                        current.endPt = endPt;
+                    } else {
+                        current = { ref: ref, startPt: startPt, endPt: endPt, distance: step.distance };
+                        rawGroups.push(current);
+                    }
+                } else {
+                    current = null; // שובר את הרצף - הצעד הבא לא ידוע/לא כביש ממוספר שטענו
+                }
+            }
+
+            // מעבר שני - לכל קבוצה בונים "עמוד שדרה" מקומי, רק מהקטעים שממש קרובים
+            // לנסיעה הזו (לא כל הכביש בארץ), כדי לא להתבלבל בין נתיבים מקבילים/צמתים רחוקים
+            return rawGroups.map(g => {
+                const midPt = [(g.startPt[0] + g.endPt[0]) / 2, (g.startPt[1] + g.endPt[1]) / 2];
+                const radius = Math.max(6000, g.distance); // מטרים - רדיוס איסוף הקטעים הרלוונטיים
+
+                const nearbySegments = roadNetwork[g.ref].filter(seg =>
+                    seg.coords.some(pt => haversine(pt, midPt) < radius)
+                );
+                const localSpine = buildSpine(nearbySegments);
+
+                // מיקום ההתחלה על העמוד השדרה נלקח כ"עוגן" אמין, וה"כיוון" (עולה/יורד)
+                // נקבע לפי איפה נקודת הסיום יצאה יחסית אליו. אורך הטווח נקבע לפי המרחק
+                // שכבר יודעים בוודאות מ-OSRM (לא מהעמוד שדרה) - כדי שהטווח המוצג
+                // תמיד יהיה עקבי עם אורך הנסיעה בפועל, גם אם מיקום העוגן עצמו מקורב.
+                const distanceKm = Math.round(g.distance / 100) / 10;
+                const rawFromKm = distanceOnSpine(localSpine, g.startPt) / 1000;
+                const rawToKm = distanceOnSpine(localSpine, g.endPt) / 1000;
+                const direction = rawToKm >= rawFromKm ? 1 : -1;
+
+                const fromKm = Math.round(rawFromKm * 10) / 10;
+                const toKm = Math.round((rawFromKm + direction * distanceKm) * 10) / 10;
+
+                return {
+                    ref: g.ref,
+                    from_km: Math.min(fromKm, toKm),
+                    to_km: Math.max(fromKm, toKm),
+                    distance_km: distanceKm
+                };
+            });
+        }
+
+        // ============================================================
+        // "המרה" מכחול לירוק: מוצאים אילו קטעים ברשת הכבישים (הקטעים
+        // המצוירים על המפה, שרק אותם סופרים באחוז ההתקדמות) נמצאים
+        // ממש קרוב לנתיב שבו נסעת בפועל (יומן נסיעות), ומסמנים אותם
+        // כ"נסעתי בהם" - כדי שהם ייספרו גם באחוז הכולל, לא רק כקו כחול.
+        // ============================================================
+        function computeDrivenSegments(coordinatesLonLat, refs) {
+            const matched = {};
+            if (!coordinatesLonLat || coordinatesLonLat.length === 0 || !refs || refs.length === 0) {
+                return matched;
+            }
+
+            const tripPath = coordinatesLonLat.map(c => [c[1], c[0]]); // ל-[lat, lon]
+
+            // תיבת גבולות של הנסיעה (עם שוליים), כדי לסנן מהר קטעים רחוקים
+            // לפני שמתחילים בחישובי מרחק (haversine) יקרים יותר
+            let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+            tripPath.forEach(([lat, lon]) => {
+                if (lat < minLat) minLat = lat;
+                if (lat > maxLat) maxLat = lat;
+                if (lon < minLon) minLon = lon;
+                if (lon > maxLon) maxLon = lon;
+            });
+            const PAD = 0.05; // מעלות, בערך 5 ק"מ
+            minLat -= PAD; maxLat += PAD; minLon -= PAD; maxLon += PAD;
+
+            const THRESH = 40; // מטרים - כמה קרוב צריך קטע להיות לנתיב כדי להיחשב "נסעת בו"
+
+            [...new Set(refs)].forEach(ref => {
+                const segments = roadNetwork[ref];
+                if (!segments) return;
+                const ids = [];
+
+                segments.forEach(seg => {
+                    if (!seg.coords || seg.coords.length === 0) return;
+
+                    const inBox = seg.coords.some(([lat, lon]) =>
+                        lat >= minLat && lat <= maxLat && lon >= minLon && lon <= maxLon);
+                    if (!inBox) return;
+
+                    let hits = 0;
+                    seg.coords.forEach(pt => {
+                        let minD = Infinity;
+                        for (let i = 0; i < tripPath.length; i++) {
+                            const d = haversine(pt, tripPath[i]);
+                            if (d < minD) minD = d;
+                            if (minD < THRESH) break;
+                        }
+                        if (minD < THRESH) hits++;
+                    });
+
+                    if (hits / seg.coords.length >= 0.5) ids.push(seg.id);
+                });
+
+                if (ids.length) matched[ref] = ids;
+            });
+
+            return matched;
+        }
+
+        // מנחשים איזה "סוג נסיעה" להציג כברירת מחדל כשפותחים לעריכה מסלול
+        // קיים - לפי הסטטוס שכבר מסומן ברוב הקטעים שהמסלול הזה תואם להם,
+        // כדי שהבורר יצביע על הסוג הנוכחי בפועל ולא תמיד על "נהגתי"
+        function inferCurrentTravelType(trip) {
+            if (!trip || !trip.coordinates || !trip.breakdown || trip.breakdown.length === 0) return 'drove';
+            const refs = trip.breakdown.map(g => g.ref);
+            const matched = computeDrivenSegments(trip.coordinates, refs);
+            const counts = {};
+            Object.entries(matched).forEach(([ref, ids]) => {
+                ids.forEach(id => {
+                    const status = segmentStatus(ref, id);
+                    if (status) counts[status] = (counts[status] || 0) + 1;
+                });
+            });
+            let best = null, bestCount = 0;
+            Object.entries(counts).forEach(([status, count]) => {
+                if (count > bestCount) { best = status; bestCount = count; }
+            });
+            return best || 'drove';
+        }
+
+        // שולח לשרת קטעים שזוהו כ"נסעתי בהם" לפי מסלול שמור, ומעדכן את התצוגה מקומית.
+        // tripId (אופציונלי) - כדי שהשרת ישמור אילו קטעים סומנו בגלל המסלול הזה
+        // בדיוק, ויאפשר "לבטל"/לסנכרן מחדש בקלות. status - אחד מ-TRAVEL_TYPES
+        // (ברירת מחדל 'drove' לתאימות לאחור), או null כדי לא לסמן כלום
+        // ("הסר מקטעים") - במקרה כזה רק מנקים סימונים קודמים של המסלול הזה
+        function markSegmentsFromTrip(coordinatesLonLat, breakdown, tripId, status) {
+            if (status === undefined) status = 'drove';
+            const refs = (breakdown || []).map(g => g.ref);
+            // מחשבים את הקטעים שהמסלול המצויר חופף אליהם תמיד (גם כשנבחר
+            // "הסר מקטעים") - כדי שאפשר יהיה לנקות אותם בפועל בשרת, גם אם
+            // זו נסיעה חדשה שמציירים במיוחד כדי "למחוק" איתה קטעים שסומנו
+            // בטעות (ולא רק לבטל מה שהמסלול הזה עצמו סימן בעבר)
+            const matched = refs.length > 0 ? computeDrivenSegments(coordinatesLonLat, refs) : {};
+
+            // גם אם אין מה לסמן/לנקות - עדיין מדווחים לשרת (עם tripId) כדי
+            // שהמסלול יסומן כ"מסונכרן", וקטעים שהוא סימן בסבב קודם ולא
+            // רלוונטיים יותר יתנקו
+            if (Object.keys(matched).length === 0 && !tripId) return;
+
+            apiFetch('/api/mark_segments_driven', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ segments: matched, trip_id: tripId || null, status: status })
+            })
+                .then(r => r.json())
+                .then(result => {
+                    if (result.status !== 'ok') return;
+
+                    // מנקים קטעים שהמסלול הזה סימן בסבב קודם ואינם חלק מהסימון הנוכחי
+                    const unmarked = result.unmarked || {};
+                    Object.entries(unmarked).forEach(([ref, ids]) => {
+                        if (!progressData[ref]) return;
+                        ids.forEach(id => {
+                            delete progressData[ref][id];
+                            const layer = segmentLayers[ref] && segmentLayers[ref][id];
+                            if (layer) layer.setStyle({ color: segmentColor(ref, id) });
+                        });
+                    });
+
+                    if (status) {
+                        Object.entries(matched).forEach(([ref, ids]) => {
+                            progressData[ref] = progressData[ref] || {};
+                            ids.forEach(id => {
+                                progressData[ref][id] = status;
+                                const layer = segmentLayers[ref] && segmentLayers[ref][id];
+                                if (layer) layer.setStyle({ color: segmentColor(ref, id) });
+                            });
+                        });
+                    }
+
+                    if (tripId) {
+                        const trip = savedTrips.find(t => t.id === tripId);
+                        if (trip) trip.auto_synced = true;
+                    }
+
+                    updateSummary();
+                    renderRoadsList();
+                })
+                .catch(err => console.error('שגיאה בסנכרון התקדמות ממסלול שמור', err));
+        }
+
+        // "בטל" לפי מסלול שלם - מוריד סימון מכל הקטעים שסומנו אוטומטית בגלל
+        // המסלול הזה, למקרה שההתאמה הגיאומטרית טעתה וסימנה קטעים שלא באמת נסעת בהם
+        function undoTripSegments(trip) {
+            apiFetch('/api/unmark_trip_segments/' + trip.id, { method: 'POST' })
+                .then(r => r.json())
+                .then(result => {
+                    if (result.status !== 'ok') { alert('שגיאה בביטול הסימון'); return; }
+
+                    const unmarked = result.unmarked || {};
+                    Object.entries(unmarked).forEach(([ref, ids]) => {
+                        if (!progressData[ref]) return;
+                        ids.forEach(id => {
+                            delete progressData[ref][id];
+                            const layer = segmentLayers[ref] && segmentLayers[ref][id];
+                            if (layer) layer.setStyle({ color: segmentColor(ref, id) });
+                        });
+                    });
+
+                    // auto_synced נשאר true בכוונה - כדי שלא ננסה לסמן את הקטעים
+                    // האלה שוב אוטומטית בטעינת דף הבאה. אם רוצים "לעשות שוב" -
+                    // עורכים את המסלול ושומרים אותו מחדש (זה מפעיל סנכרון מחדש)
+
+                    updateSummary();
+                    renderRoadsList();
+                    renderTripsList();
+                })
+                .catch(err => { console.error(err); alert('שגיאה בביטול הסימון - בדוק חיבור לאינטרנט'); });
+        }
+
+        function formatBreakdown(breakdown) {
+            if (!breakdown || breakdown.length === 0) return '';
+            return breakdown
+                .map(g => `כביש ${g.ref}: ק"מ ${g.from_km}–${g.to_km} (כ-${g.distance_km} ק"מ)`)
+                .join(' · ');
+        }
+
+        function getRoute(start, end) {
+            const url = `https://router.project-osrm.org/route/v1/driving/`
+                + `${start.lng},${start.lat};${end.lng},${end.lat}`
+                + `?overview=full&geometries=geojson&steps=true`;
+
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.routes && data.routes.length > 0) {
+                        const routeGeoJSON = data.routes[0].geometry;
+                        routeLine = L.geoJSON(routeGeoJSON, { style: { color: '#f59e0b', weight: 5 } }).addTo(map);
+
+                        currentCoordinates = routeGeoJSON.coordinates;
+                        saveBtn.style.display = 'block';
+                        travelTypePicker.style.display = 'flex';
+
+                        const allSteps = data.routes[0].legs.flatMap(leg => leg.steps);
+                        currentBreakdown = computeRoadBreakdown(allSteps);
+
+                        const km = (data.routes[0].distance / 1000).toFixed(1);
+                        const min = Math.round(data.routes[0].duration / 60);
+                        const breakdownText = formatBreakdown(currentBreakdown);
+                        routeInfo.textContent = `${km} ק"מ · כ-${min} דקות` + (breakdownText ? ' · ' + breakdownText : '');
+                        routeInfo.style.display = 'block';
+                    } else {
+                        alert('לא נמצא מסלול נסיעה בין הנקודות האלה');
+                    }
+                })
+                .catch(err => {
+                    console.error(err);
+                    alert('שגיאה בקבלת המסלול - בדוק חיבור לאינטרנט');
+                });
+        }
+
+        saveBtn.addEventListener('click', function () {
+            if (!currentCoordinates) return;
+
+            if (editingTripId) {
+                apiFetch('/api/update_route/' + editingTripId, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ coordinates: currentCoordinates, breakdown: currentBreakdown })
+                })
+                    .then(r => r.json())
+                    .then(result => {
+                        if (result.status !== 'ok') { alert('שגיאה בעדכון המסלול'); return; }
+
+                        map.removeLayer(tripLayers[editingTripId]);
+                        const idx = savedTrips.findIndex(t => t.id === editingTripId);
+                        savedTrips[idx] = result.route;
+                        drawTrip(result.route);
+                        markSegmentsFromTrip(result.route.coordinates, result.route.breakdown, result.route.id, selectedTravelType);
+
+                        exitEditMode(false);
+                        renderTripsList();
+                    })
+                    .catch(err => { console.error(err); alert('שגיאה בעדכון המסלול'); });
+            } else {
+                apiFetch('/api/save_route', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ coordinates: currentCoordinates, breakdown: currentBreakdown })
+                })
+                    .then(r => r.json())
+                    .then(result => {
+                        if (result.status !== 'ok') { alert('שגיאה בשמירת המסלול'); return; }
+
+                        savedTrips.push(result.route);
+                        drawTrip(result.route);
+                        markSegmentsFromTrip(result.route.coordinates, result.route.breakdown, result.route.id, selectedTravelType);
+                        resetDrawingState();
+                        renderTripsList();
+                    })
+                    .catch(err => { console.error(err); alert('שגיאה בשמירת המסלול - בדוק שהשרת פועל'); });
+            }
+        });
+
+        function deleteTrip(trip) {
+            apiFetch('/api/delete_route/' + trip.id, { method: 'DELETE' })
+                .then(r => r.json())
+                .then(result => {
+                    if (result.status !== 'ok') { alert('שגיאה במחיקת המסלול'); return; }
+
+                    if (tripLayers[trip.id]) tripsLayerGroup.removeLayer(tripLayers[trip.id]);
+                    delete tripLayers[trip.id];
+                    savedTrips = savedTrips.filter(t => t.id !== trip.id);
+                    renderTripsList();
+                })
+                .catch(err => { console.error(err); alert('שגיאה במחיקת המסלול'); });
+        }
+
+        function renderTripsList() {
+            const container = document.getElementById('trips-list');
+
+            if (savedTrips.length === 0) {
+                container.innerHTML = '<div class="empty-hint">עדיין אין מסלולים שמורים.<br>סמן נקודת התחלה וסיום על המפה כדי להתחיל.</div>';
+                return;
+            }
+
+            container.innerHTML = '';
+            savedTrips.forEach(trip => {
+                const item = document.createElement('div');
+                item.className = 'trip-item';
+
+                const headerRow = document.createElement('div');
+                headerRow.className = 'trip-item-header';
+
+                const hasMarkedSegments = trip.breakdown && trip.breakdown.length > 0;
+
+                // שורת הכפתורים הרגילה
+                const normalRow = document.createElement('span');
+                normalRow.className = 'trip-item-buttons';
+                normalRow.innerHTML = `
+                    <button class="btn-edit">✏️ ערוך</button>
+                    ${hasMarkedSegments ? '<button class="btn-undo">↩️ בטל סימון כביש</button>' : ''}
+                    <button class="btn-delete">🗑️ מחק</button>
+                `;
+
+                // שורת אישור מחיקה - מוצגת רק אחרי לחיצה על "מחק" (בלי חלון קופץ חוסם)
+                const confirmRow = document.createElement('span');
+                confirmRow.className = 'trip-item-buttons';
+                confirmRow.style.display = 'none';
+                confirmRow.innerHTML = `
+                    <span style="font-size:0.85em; color:#991b1b;">למחוק?</span>
+                    <button class="btn-delete">כן, מחק</button>
+                    <button class="btn-cancel">ביטול</button>
+                `;
+
+                // שורת אישור ביטול סימון - "האם באמת לא נסעת בקטעים האלה?"
+                const undoConfirmRow = document.createElement('span');
+                undoConfirmRow.className = 'trip-item-buttons';
+                undoConfirmRow.style.display = 'none';
+                undoConfirmRow.innerHTML = `
+                    <span style="font-size:0.85em; color:#92400e;">לבטל את הסימון הירוק של הקטעים שהמסלול הזה סימן?</span>
+                    <button class="btn-undo">כן, בטל</button>
+                    <button class="btn-cancel">ביטול</button>
+                `;
+
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = trip.name;
+
+                headerRow.appendChild(nameSpan);
+                headerRow.appendChild(normalRow);
+                headerRow.appendChild(confirmRow);
+                if (hasMarkedSegments) headerRow.appendChild(undoConfirmRow);
+                item.appendChild(headerRow);
+
+                // שורת פירוט - לפי אילו כבישים עבר המסלול ובאיזה טווח ק"מ (מוערך)
+                if (trip.breakdown && trip.breakdown.length > 0) {
+                    const subtitle = document.createElement('div');
+                    subtitle.className = 'trip-item-subtitle';
+                    subtitle.textContent = formatBreakdown(trip.breakdown);
+                    item.appendChild(subtitle);
+                }
+
+                normalRow.querySelector('.btn-edit').addEventListener('click', () => enterEditMode(trip));
+                normalRow.querySelector('.btn-delete').addEventListener('click', () => {
+                    normalRow.style.display = 'none';
+                    confirmRow.style.display = 'inline-flex';
+                });
+                confirmRow.querySelector('.btn-cancel').addEventListener('click', () => {
+                    confirmRow.style.display = 'none';
+                    normalRow.style.display = 'inline-flex';
+                });
+                confirmRow.querySelector('.btn-delete').addEventListener('click', () => deleteTrip(trip));
+
+                if (hasMarkedSegments) {
+                    normalRow.querySelector('.btn-undo').addEventListener('click', () => {
+                        normalRow.style.display = 'none';
+                        undoConfirmRow.style.display = 'inline-flex';
+                    });
+                    undoConfirmRow.querySelector('.btn-cancel').addEventListener('click', () => {
+                        undoConfirmRow.style.display = 'none';
+                        normalRow.style.display = 'inline-flex';
+                    });
+                    undoConfirmRow.querySelector('.btn-undo').addEventListener('click', () => undoTripSegments(trip));
+                }
+
+                container.appendChild(item);
+            });
+        }
+
+        // (הקריאות renderTripsList() ותיקון הסנכרון החד-פעמי של מסלולים ישנים
+        // - זזו ל-initApp() למטה, מאותה סיבה: תלויות בנתונים שנטענים רק
+        // אחרי התחברות. ראו שם את markSegmentsFromTrip לכל מסלול לא מסונכרן)
+
+        // ============================================================
+        // ניהול הפאנל הצדדי (פתיחה/סגירה/טאבים)
+        // ============================================================
+        const panel = document.getElementById('routes-panel');
+        const backdrop = document.getElementById('panel-backdrop');
+
+        function togglePanel(open) {
+            panel.classList.toggle('open', open);
+            backdrop.style.display = open ? 'block' : 'none';
+            if (!open) {
+                document.getElementById('panel-more-menu').classList.remove('open');
+            }
+        }
+
+        document.getElementById('panel-close').addEventListener('click', () => togglePanel(false));
+        backdrop.addEventListener('click', () => togglePanel(false));
+
+        // ============================================================
+        // "טאב" פתיחת הפאנל, מוצמד לצד ימין של המסך - בדיוק מהצד שממנו
+        // הפאנל עצמו נגלש פנימה, כדי שהתנועה תהיה טבעית ואינטואיטיבית
+        // (במקום כפתור "כבישים" נפרד בצד שמאל, רחוק מהפעולה בפועל).
+        // אפשר גם פשוט ללחוץ עליו, וגם "לגרור/למשוך" אותו שמאלה כדי לפתוח
+        // את הפאנל בהדרגה, ממש כמו משיכת מגירה - ברגע שהפאנל פתוח הוא
+        // ממילא מכסה את הטאב (z-index גבוה יותר), כך שאין צורך בדרך נפרדת
+        // לסגור דרכו - לזה משמשים כפתור ה-✕ או לחיצה על הרקע הכהה
+        // ============================================================
+        const edgeTab = document.getElementById('panel-edge-tab');
+        let edgeDragStartX = null;
+        let edgeDragPanelWidth = 0;
+
+        function getPanelWidthPx() {
+            return panel.getBoundingClientRect().width || 320;
+        }
+
+        edgeTab.addEventListener('pointerdown', (e) => {
+            edgeDragStartX = e.clientX;
+            edgeDragPanelWidth = getPanelWidthPx();
+            panel.style.transition = 'none';
+            panel.style.transform = `translateX(${edgeDragPanelWidth}px)`;
+            backdrop.style.display = 'block';
+            backdrop.style.opacity = '0';
+            edgeTab.setPointerCapture(e.pointerId);
+        });
+
+        edgeTab.addEventListener('pointermove', (e) => {
+            if (edgeDragStartX === null) return;
+            const draggedLeft = edgeDragStartX - e.clientX; // חיובי = גוררים שמאלה, לכיוון פתיחה
+            const openPx = Math.max(0, Math.min(edgeDragPanelWidth, draggedLeft));
+            panel.style.transform = `translateX(${edgeDragPanelWidth - openPx}px)`;
+            backdrop.style.opacity = String((openPx / edgeDragPanelWidth) * 0.35);
+        });
+
+        function finishEdgeTabGesture(e) {
+            if (edgeDragStartX === null) return;
+            const draggedLeft = edgeDragStartX - e.clientX;
+            edgeDragStartX = null;
+
+            // ברירת המחדל היא לפתוח - גם הקשה/קליק רגיל בלי גרירה בכלל
+            // (draggedLeft כמעט 0) אמורים לפתוח, כי זה התפקיד היחיד של הטאב
+            // הזה. רק גרירה ממשית ימינה (מתחרטים תוך כדי) מבטלת את הפתיחה
+            const openedEnough = draggedLeft > -edgeDragPanelWidth * 0.5;
+
+            panel.style.transition = 'transform 0.25s ease';
+            panel.style.transform = openedEnough ? 'translateX(0)' : `translateX(${edgeDragPanelWidth}px)`;
+            backdrop.style.opacity = '';
+            togglePanel(openedEnough);
+
+            setTimeout(() => {
+                panel.style.transition = '';
+                panel.style.transform = '';
+            }, 260);
+        }
+        edgeTab.addEventListener('pointerup', finishEdgeTabGesture);
+        edgeTab.addEventListener('pointercancel', finishEdgeTabGesture);
+
+        // מעבר בין סקציית "כבישים" (ברירת המחדל, עם ההתקדמות) לסקציית
+        // "יומן נסיעות" - בלי תפריט טאבים גלוי, רק דרך "עוד אפשרויות" למטה
+        function showPanelSection(name) {
+            document.querySelectorAll('.panel-section').forEach(s => s.classList.remove('active'));
+            document.getElementById('tab-' + name).classList.add('active');
+        }
+
+        // "עוד אפשרויות" - תפריט קטן וסגור כברירת מחדל שמסתיר בו את כפתור
+        // טעינת הכבישים מ-OSM (פעולה חד-פעמית) ואת יומן הנסיעות, כדי שהפאנל
+        // הראשי יציג ישר את רשימת הכבישים וההתקדמות בהם בלי רעש מיותר
+        const moreMenu = document.getElementById('panel-more-menu');
+        document.getElementById('panel-more-toggle').addEventListener('click', () => {
+            moreMenu.classList.toggle('open');
+        });
+        document.getElementById('show-trips-btn').addEventListener('click', () => {
+            showPanelSection('trips');
+            moreMenu.classList.remove('open');
+        });
+        document.getElementById('back-to-roads-btn').addEventListener('click', () => showPanelSection('roads'));
+    </script>
+</body>
+</html>

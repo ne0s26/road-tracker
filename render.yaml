@@ -1,0 +1,28 @@
+# קובץ תצורה ל-Render (Blueprint) - מאפשר לפרוס את כל השירות בלחיצה אחת
+# דרך "New +" -> "Blueprint" ב-Render, במקום להגדיר כל דבר ידנית.
+# כל הערכים המסומנים sync: false הם סודות/פרטים אישיים - Render יבקש
+# אותם בזמן הפריסה ולא ישמור אותם בקובץ הזה (ולכן גם לא ב-git).
+services:
+  - type: web
+    name: road-tracker
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120
+    envVars:
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: FIREBASE_API_KEY
+        sync: false
+      - key: FIREBASE_AUTH_DOMAIN
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_STORAGE_BUCKET
+        sync: false
+      - key: FIREBASE_MESSAGING_SENDER_ID
+        sync: false
+      - key: FIREBASE_APP_ID
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.12.4

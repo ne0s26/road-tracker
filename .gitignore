@@ -1,0 +1,17 @@
+# סוד אמיתי - אסור בשום אופן שיגיע ל-git. בענן (Render) המשתנה
+# FIREBASE_SERVICE_ACCOUNT_JSON מחליף את הצורך בקובץ הזה לגמרי.
+firebase-service-account.json
+
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+
+# קבצי נתונים ישנים של הגרסה החד-משתמשית (progress.json וכו') - לא
+# רלוונטיים יותר לגרסה הרב-משתמשית שמאחסנת הכל ב-Firestore
+progress.json
+routes.json
+trip_segments.json
+
+.DS_Store
